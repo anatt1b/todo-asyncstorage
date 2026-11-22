@@ -2,56 +2,49 @@ import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
 import { Button, FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
-import * as SQLite from 'expo-sqlite'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Task } from './types/Todo'
 import Row from './components/Row'
 
+const STORAGE_KEY = 'tasks'
+
 export default function App() {
-  const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [input, setInput] = useState<string>('')
 
-  // Avataan tietokanta ja luodaan taulu kun sovellus käynnistyy
+  // Haetaan tallennetut tehtävät kun sovellus käynnistyy
   useEffect(() => {
-    const initDB = async () => {
-      const database = await SQLite.openDatabaseAsync('tasks.db')
-      setDb(database)
-      await database.execAsync(`
-        CREATE TABLE IF NOT EXISTS todos (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          text TEXT NOT NULL,
-          completed INTEGER DEFAULT 0
-        );
-      `)
-      loadTodos(database)
+    const loadTodos = async () => {
+      const savedText = await AsyncStorage.getItem(STORAGE_KEY)
+      if (savedText !== null) {
+        setTasks(JSON.parse(savedText))
+      }
     }
-    initDB()
+    loadTodos()
   }, [])
 
-  // Haetaan kaikki tehtävät tietokannasta
-  const loadTodos = async (database: SQLite.SQLiteDatabase) => {
-    const result = await database.getAllAsync<Task>('SELECT * FROM todos')
-    setTasks(result)
+  // Päivitetään lista näytölle ja tallennetaan se puhelimen muistiin
+  const saveTodos = async (newTasks: Task[]) => {
+    setTasks(newTasks)
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newTasks))
   }
 
   const addTodo = async () => {
-    if (!input.trim() || !db) return
-    await db.runAsync('INSERT INTO todos (text) VALUES (?)', input)
+    if (!input.trim()) return
+    const newTask: Task = { id: Date.now(), text: input, completed: 0 }
+    await saveTodos([...tasks, newTask])
     setInput('')
-    loadTodos(db)
   }
 
   const deleteTodo = async (id: number) => {
-    if (!db) return
-    await db.runAsync('DELETE FROM todos WHERE id = ?', id)
-    loadTodos(db)
+    await saveTodos(tasks.filter((task) => task.id !== id))
   }
 
   const toggleTodo = async (id: number, completed: number) => {
-    if (!db) return
     const newCompleted = completed === 1 ? 0 : 1
-    await db.runAsync('UPDATE todos SET completed = ? WHERE id = ?', newCompleted, id)
-    loadTodos(db)
+    await saveTodos(
+      tasks.map((task) => (task.id === id ? { ...task, completed: newCompleted } : task))
+    )
   }
 
   return (
